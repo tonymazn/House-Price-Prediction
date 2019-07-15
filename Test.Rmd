@@ -1,0 +1,144 @@
+---
+title: "House Price"
+author: "Tony Ma"
+date: "7/12/2019"
+output: html_document
+---
+
+
+  
+```{r}
+library("GGally")
+library(faraway)
+library(leaps)
+```
+```{r}
+calc_loocv_rmse = function(model) {
+  sqrt(mean((resid(model) / (1 - hatvalues(model))) ^ 2))
+}
+
+mape = function(actual, pred){
+  mean(abs((actual - pred) / actual)) * 100
+}
+
+convert_factor_to_numeric = function(variable){
+  result = as.numeric(variable)
+  result[which(is.na(result))] = 0
+  result
+}
+```
+
+
+
+
+```{r}
+# 1. Import data
+# 2. Find out any variable causes issue
+# 3. Remove those variables from data => change to => the issus variable is factor, simply convert to numeric and convert na to 0
+
+
+data = autompg = read.csv("train.csv")[, -1]
+str(data)
+
+(data$Alley = convert_factor_to_numeric(data$Alley))
+data$Utilities = convert_factor_to_numeric(data$Utilities)
+data$PoolQC = convert_factor_to_numeric(data$PoolQC)
+data$Fence = convert_factor_to_numeric(data$Fence)
+data$MiscFeature = convert_factor_to_numeric(data$MiscFeature)
+
+
+
+#head(data)
+#str(data)
+
+cols = colnames(data)
+length(colnames(data))
+
+train = data
+
+factors = vector()
+model = lm("SalePrice ~ 1", train)
+last_model = model
+last_factors = cbind()
+datav2 = data
+drops = cbind()
+for(i in 1:length(cols))
+{
+  if(cols[i] != "SalePrice"){
+    factors = cbind(last_factors, cols[i])
+    tryCatch({
+      model = lm(as.formula(paste("SalePrice ~ ", paste(factors, collapse="+"))), train)
+      last_model = model
+      last_factors = factors
+    },error = function(e){
+      print(cols[i])
+      print(e)
+    }, finally = {
+      if(length(last_factors) != length(factors)) {
+        drops = c(drops, cols[i])
+      }
+    }
+    )
+  }
+}
+
+drops
+datav2 = data[ ,!(names(data) %in% drops)]
+
+summary(last_model)
+str(datav2)
+length(colnames(datav2))
+
+```
+
+
+
+
+```{r}
+# Test collinearity
+sapply(datav2, class)
+datav3 = datav2[sapply(datav2, function(x) !is.factor(x))]
+round(cor(datav3), 2)
+
+```
+
+
+```{r}
+# Test vif
+vif(datav3)
+```
+
+```{r}
+#There some na in the data, omit those na, the test will be able to find fit model
+no_na_data = na.omit(datav3)
+
+nrow(no_na_data)
+```
+
+```{r}
+#AIC BackWard Search
+all_model = lm(SalePrice ~ ., no_na_data)
+aic_model = step(all_model, direction = "backward")
+summary(aic_model)
+
+pred = predict(aic_model, newdata = no_na_data)
+actual = no_na_data$SalePrice
+mape(actual, pred)
+
+```
+
+```{r}
+#Exhaustive Search
+exhaustive_search_model = summary(regsubsets(SalePrice ~ ., data = no_na_data))
+(best_r2_ind = which.max(exhaustive_search_model$adjr2))
+(best_exhaustive_parameters = exhaustive_search_model$which[best_r2_ind, ])
+
+best_exhaustive_model = lm(SalePrice ~ MSSubClass + OverallQual + OverallCond + YearBuilt + YearRemodAdd  + MasVnrArea + BsmtFinSF1 + GrLivArea + GarageCars + PoolArea + PoolQC, no_na_data)
+calc_loocv_rmse(best_exhaustive_model)
+pred = predict(best_exhaustive_model, newdata = no_na_data)
+actual = no_na_data$SalePrice
+mape(actual, pred)
+
+```
+
+
